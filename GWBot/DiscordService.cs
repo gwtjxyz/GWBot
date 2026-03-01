@@ -20,6 +20,8 @@ public interface IDiscordService
     public Task<List<ImageAttachmentData>> GetImageAttachmentData(IEnumerable<Attachment> attachments);
 
     public Task<HttpContent> GetImageContent(Attachment imageAttachment);
+
+    public ValueTask LogToChannel(string message, Message originalMessage);
 }
 
 public class DiscordService(ILogger<DiscordService> logger, RestClient discordClient) : IDiscordService
@@ -42,9 +44,10 @@ public class DiscordService(ILogger<DiscordService> logger, RestClient discordCl
 
         if (guildUser.GetPermissions(message.Guild).HasFlag(Permissions.BanUsers))
         {
+            // TODO cleanup
+            FileSystem.LogToFile($"User {guildUser.Id} ({guildUser.GlobalName}) is a moderator, skipping the ban.");
+            await LogToChannel($"User {guildUser.Id} ({guildUser.GlobalName}) is a moderator, skipping the ban.", message);
             logger.LogInformation("User {} ({}) is a moderator, not banning.", guildUser.Id, guildUser.GlobalName);
-            // var response = new MessageProperties().WithContent("User is too privileged for me to ban");
-            // await discordClient.SendMessageAsync(message.ChannelId, response);
         }
         else
         {
@@ -52,6 +55,7 @@ public class DiscordService(ILogger<DiscordService> logger, RestClient discordCl
             try
             {
                 var banInfo = await discordClient.GetGuildBanAsync(guildUser.GuildId, guildUser.Id);
+                FileSystem.LogToFile($"User {guildUser.Id} ({guildUser.GlobalName} is already banned, not banning again.");
                 logger.LogInformation("User {} is already banned, not banning again.", guildUser.Id);
             }
             catch (RestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
@@ -63,7 +67,11 @@ public class DiscordService(ILogger<DiscordService> logger, RestClient discordCl
                 // doing this in a catch block looks kinda stupid but eh whatever
                 var deleteMessageSeconds = 60 * 60 * 24; // 1 day
                 await discordClient.BanGuildUserAsync(message.Guild.Id, message.Author.Id, deleteMessageSeconds: deleteMessageSeconds);
+                FileSystem.LogToFile($"Banned user {message.Author.Id} ({message.Author.GlobalName})");
                 await discordClient.UnbanGuildUserAsync(message.Guild.Id, message.Author.Id);
+                
+                FileSystem.LogToFile($"Unbanned user {message.Author.Id} ({message.Author.GlobalName})");
+                await LogToChannel($"Successfully banned and unbanned user {message.Author.Id} ({message.Author.GlobalName})", message);
                 logger.LogInformation("Successfully banned and unbanned user {} ({}).", message.Author.Id, message.Author.GlobalName);
             }
         }
@@ -95,5 +103,23 @@ public class DiscordService(ILogger<DiscordService> logger, RestClient discordCl
         var response = await responseTask;
 
         return response.Content;
+    }
+
+    // If log channel is set, log to it, otherwise log to the same channel as the original message
+    public async ValueTask LogToChannel(string message, Message originalMessage)
+    {
+        var serverChannelDictionary = FileSystem.SerializeFromFile<List<ServerChannelDictionaryEntry>>(FileSystem.ServerDictionaryPath, FileAccess.Read);
+        var response = new MessageProperties().WithContent(message);
+        
+        // Send to log channel if set, otherwise to the same channel as the original message
+        var serverEntry = serverChannelDictionary.FindAll(x => x.ServerId == originalMessage.Guild!.Id);
+        if (serverEntry.Count == 0)
+        {
+            await discordClient.SendMessageAsync(originalMessage.ChannelId, response);
+        }
+        else
+        {
+            serverEntry.ForEach(async e => await discordClient.SendMessageAsync(e.ChannelId, response));
+        }
     }
 }

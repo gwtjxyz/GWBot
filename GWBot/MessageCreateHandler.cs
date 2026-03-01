@@ -20,7 +20,7 @@ public class MessageCreateHandler(ILogger<MessageCreateHandler> logger, IDiscord
 
         var client = Client.HttpClient;
 
-        var imageList = FileSystem.LoadImageList(FileAccess.Read);
+        var imageList = FileSystem.SerializeFromFile<ImageList>(FileSystem.ImageListPath, FileAccess.Read);
         var imageAttachmentDataList = await discordService.GetImageAttachmentData(imageAttachments);
 
         bool imageFoundInList = false;

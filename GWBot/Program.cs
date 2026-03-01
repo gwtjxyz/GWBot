@@ -9,6 +9,8 @@ using NetCord.Hosting.Gateway;
 using NetCord.Hosting.Services;
 using NetCord.Hosting.Services.Commands;
 
+Console.WriteLine("Starting GWBot...");
+
 var builder = Host.CreateApplicationBuilder(args);
 
 builder.Services
@@ -22,7 +24,17 @@ builder.Services
 
 string projectDirectory = FileSystem.BotFolderRoot.ToString();
 
-builder.Configuration.AddJsonFile(Path.Join(projectDirectory, "appsettings.json"), optional: false, reloadOnChange: true);
+if (args.ContainsAny("--production", "--prod"))
+{
+    // Production
+    builder.Configuration.AddJsonFile(Path.Join(projectDirectory, "appsettings.Production.json"), optional: false, reloadOnChange: true);
+}
+else
+{
+    // Development
+    builder.Configuration.AddJsonFile(Path.Join(projectDirectory, "appsettings.Development.json"), optional: false, reloadOnChange: true);
+}
+
 
 var host = builder.Build();
 

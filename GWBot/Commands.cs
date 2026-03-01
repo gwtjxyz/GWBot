@@ -5,6 +5,22 @@ using NetCord.Services.Commands;
 
 namespace GWBot;
 
+static class CommandHelpers
+{
+    public static string CheckForModeratorPermissions(CommandContext context)
+    {
+        if (context.Message.Author is not GuildUser guildUser)
+        {
+            return "Invalid input: Command can only be used in a server.";
+        }
+        else if (!guildUser.GetPermissions(context.Message.Guild!).HasFlag(Permissions.BanUsers))
+        {
+            return "You do not have permission to use this command.";
+        }
+        return string.Empty;
+    }
+}
+
 public class PingCommand : CommandModule<CommandContext>
 {
     [Command("ping")]
@@ -20,7 +36,9 @@ public class HelpCommand : CommandModule<CommandContext>
         "help - Show this help message.\n" +
         "ping - Check the bot's latency.\n" +
         "refresh - Recalculate the internal image list.\n" +
-        "addimage - Add a new image to the banned image list.";
+        "addimage, add - Add a new image to the banned image list.\n" +
+        "loghere - Set the current channel as the log channel for the bot's actions.\n" +
+        "loganywhere = Unset the log channel.";
     }
 }
 
@@ -29,13 +47,10 @@ public class RefreshImageListCommand(ILogger<RefreshImageListCommand> logger) : 
     [Command("refresh")]
     public string RefreshList()
     {
-        if (Context.Message.Author is not GuildUser guildUser)
+        string permissionError = CommandHelpers.CheckForModeratorPermissions(Context);
+        if (!String.IsNullOrEmpty(permissionError))
         {
-            return "Invalid input: Command can only be used in a server.";
-        }
-        else if (!guildUser.GetPermissions(Context.Message.Guild!).HasFlag(Permissions.BanUsers))
-        {
-            return "You do not have permission to use this command.";
+            return permissionError;
         }
 
         FileSystem.PopulateImageList(reset: true);
@@ -49,14 +64,10 @@ public class AddImageCommand(ILogger<AddImageCommand> logger, IDiscordService di
     [Command("addimage", "add")]
     public async Task<string> AddImage()
     {
-
-        if (Context.Message.Author is not GuildUser guildUser)
+        string permissionError = CommandHelpers.CheckForModeratorPermissions(Context);
+        if (!String.IsNullOrEmpty(permissionError))
         {
-            return "Invalid input: Command can only be used in a server.";
-        }
-        else if (!guildUser.GetPermissions(Context.Message.Guild!).HasFlag(Permissions.BanUsers))
-        {
-            return "You do not have permission to use this command.";
+            return permissionError;
         }
 
         var attachedImages = from attachment in Context.Message.Attachments
@@ -69,8 +80,7 @@ public class AddImageCommand(ILogger<AddImageCommand> logger, IDiscordService di
         }
 
         // TODO allow links?
-
-        var imageList = FileSystem.LoadImageList(FileAccess.Read);
+        var imageList = FileSystem.SerializeFromFile<ImageList>(FileSystem.ImageListPath, FileAccess.Read);
         var imageAttachmentDataList = await discordService.GetImageAttachmentData(attachedImages);
 
         int addedImageCount = 0;
@@ -106,5 +116,67 @@ public class AddImageCommand(ILogger<AddImageCommand> logger, IDiscordService di
     private static bool IsHashSimilar(ulong hash1, ulong hash2)
     {
         return CompareHash.Similarity(hash1, hash2) >= 99.5;
+    }
+}
+
+public class SetLogChannelCommand(ILogger<SetLogChannelCommand> logger) : CommandModule<CommandContext>
+{
+    [Command("loghere")]
+    public string SetLogChannel()
+    {
+        var permissionError = CommandHelpers.CheckForModeratorPermissions(Context);
+        if (!String.IsNullOrEmpty(permissionError))
+        {
+            return permissionError;
+        }
+
+        // Cannot be null based on checks above
+        var serverId = Context.Message.Guild!.Id;
+        var channelId = Context.Message.Channel!.Id;
+        var path = FileSystem.ServerDictionaryPath;
+
+        var serverChannelDictionary = FileSystem.SerializeFromFile<List<ServerChannelDictionaryEntry>>(path, FileAccess.ReadWrite);
+        var index = serverChannelDictionary.FindIndex(x => x.ServerId == serverId);
+
+        if (index < 0)
+        {
+            serverChannelDictionary.Add(new ServerChannelDictionaryEntry(serverId, channelId));
+        }
+        else
+        {
+            serverChannelDictionary.GetRange(index, 1).ForEach(x => x.ChannelId = channelId); // TODO fix
+        }
+
+        FileSystem.SerializeToFile(path, serverChannelDictionary);
+
+        return $"Log channel for server with ID {serverId} set to channel with ID {channelId}";
+    }
+
+    [Command("loganywhere")]
+    public string ResetLogChannel()
+    {
+        var permissionError = CommandHelpers.CheckForModeratorPermissions(Context);
+        if (!String.IsNullOrEmpty(permissionError))
+        {
+            return permissionError;
+        }
+
+        // Cannot be null based on checks above
+        var serverId = Context.Message.Guild!.Id;
+        var path = FileSystem.ServerDictionaryPath;
+
+        var serverChannelDictionary = FileSystem.SerializeFromFile<List<ServerChannelDictionaryEntry>>(path, FileAccess.ReadWrite);
+        var index = serverChannelDictionary.FindIndex(x => x.ServerId == serverId);
+
+        if (index >= 0)
+        {
+            serverChannelDictionary.RemoveAll(x => x.ServerId == serverId);
+            FileSystem.SerializeToFile(path, serverChannelDictionary);
+            return $"Unset log channel for server with ID {serverId}, actions will be logged to whichever channel the action occurred in.";
+        }
+        else
+        {
+            return $"Log channel for server with ID {serverId} not set.";
+        }
     }
 }

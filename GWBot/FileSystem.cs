@@ -1,5 +1,6 @@
 ﻿using CoenM.ImageHash;
 using CoenM.ImageHash.HashAlgorithms;
+using Microsoft.Extensions.Options;
 using NetCord;
 using System.Text;
 using System.Text.Json;
@@ -26,6 +27,14 @@ public struct ImageList
     public List<ImageListEntry> Images { get; set; }
 }
 
+// class because it needs to be mutable for easier serialization
+public class ServerChannelDictionaryEntry
+{
+    public ServerChannelDictionaryEntry(ulong serverId, ulong channelId) => (ServerId, ChannelId) = (serverId, channelId);
+    public ulong ServerId { get; set; }
+    public ulong ChannelId { get; set; }
+}
+
 public class FileSystem
 {
     public static DirectoryInfo BotFolderRoot
@@ -41,11 +50,49 @@ public class FileSystem
         }
     }
 
+    public static DirectoryInfo PersistentConfigFolder
+    {
+        get
+        {
+            var userFolderPath = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            var configFolderPath = Path.Join(userFolderPath, ".config");
+            if (!Directory.Exists(configFolderPath))
+            {
+                Directory.CreateDirectory(configFolderPath);
+            }
+            var botConfigFolderPath = Path.Join(configFolderPath, "gwbot");
+            if (!Directory.Exists(botConfigFolderPath))
+            {
+                Directory.CreateDirectory(botConfigFolderPath);
+            }
+            return new DirectoryInfo(botConfigFolderPath);
+        }
+    }
+
     private readonly static JsonSerializerOptions options = new() { WriteIndented = true };
+
+    private readonly static string ServerDictionaryName = "dictionary.json";
+
+    private readonly static string ImageListName = "imageList.json";
+
+    public readonly static string ImageListPath = Path.Join(BotFolderRoot.FullName, ImageListName);
+
+    public readonly static string ServerDictionaryPath = Path.Join(PersistentConfigFolder.FullName, ServerDictionaryName);
+
+    public static ulong SetMessageChannelForServer(ulong guildId, ulong channelId)
+    {
+        throw new NotImplementedException("TODO");
+    }
+
+    public static ulong GetMessageChannelForServer(ulong guildId)
+    {
+
+        throw new NotImplementedException("TODO");
+    }
 
     public static void PopulateImageList(bool reset = false)
     {
-        var imageList = LoadImageList(FileAccess.ReadWrite);
+        var imageList = SerializeFromFile<ImageList>(ImageListPath, FileAccess.ReadWrite);
 
         DirectoryInfo imagesFolder;
         try
@@ -87,14 +134,7 @@ public class FileSystem
 
         if (fileUpdated)
         {
-            Console.WriteLine("New images detected, serializing into file list...");
-            var imageListJsonString = JsonSerializer.Serialize<ImageList>(imageList, options);
-
-            string imageListFilePath = Path.Join(BotFolderRoot.FullName, "imageList.json");
-            using var imageListContents = File.Open(imageListFilePath, FileMode.OpenOrCreate, FileAccess.Write);
-
-            byte[] data = new UTF8Encoding(true).GetBytes(imageListJsonString);
-            imageListContents.Write(data, 0, data.Length);
+            SerializeToFile(ImageListPath, imageList);
         }
     }
 
@@ -116,7 +156,7 @@ public class FileSystem
     public static ImageList LoadImageList(FileAccess fileAccess)
     {
         // TODO replace JSON parsing with CSV parsing
-        string imageListFilePath = Path.Join(BotFolderRoot.FullName, "imageList.json");
+        string imageListFilePath = Path.Join(BotFolderRoot.FullName, ImageListName);
         // TODO handle other exceptions
         using var imageListContents = File.Open(imageListFilePath, FileMode.OpenOrCreate, fileAccess);
         ImageList imageList;
@@ -131,6 +171,40 @@ public class FileSystem
             imageList = new ImageList();
         }
         return imageList;
+    }
+
+    // TODO do we need all these null checks?
+    public static T SerializeFromFile<T>(string filePath, FileAccess fileAccess)
+    {
+        T data;
+        try
+        {
+            using var fileContents = File.Open(filePath, FileMode.OpenOrCreate, fileAccess);
+            Console.WriteLine($"Trying to deserialize {filePath}");
+            data = JsonSerializer.Deserialize<T>(fileContents) ?? Activator.CreateInstance<T>();
+        }
+        catch (JsonException e)
+        {
+            Console.WriteLine($"Serializing failed. Reason:\n\t${e.Message}\n\tReturning empty list...");
+            data = Activator.CreateInstance<T>();
+        }
+        catch (SystemException e)
+        {
+            Console.WriteLine($"Could not open {filePath} for reading\n\tReason: ${e.Message}\n\tReturning empty list...");
+            data = Activator.CreateInstance<T>();
+        }
+        return data ?? Activator.CreateInstance<T>();
+    }
+
+    public static void SerializeToFile<T>(string filePath, T data)
+    {
+        Console.WriteLine($"Serializing data into {filePath}...");
+        var jsonString = JsonSerializer.Serialize<T>(data, options);
+        // Create instead of Open to always empty the file before writing
+        using var fileContents = File.Create(filePath);
+
+        byte[] jsonData = new UTF8Encoding(true).GetBytes(jsonString);
+        fileContents.Write(jsonData, 0, jsonData.Length);
     }
 
     public static string AddImageToFolder(Attachment image, HttpContent imageContent)
@@ -186,9 +260,18 @@ public class FileSystem
             name = nameWithoutExtension + extension;
         }
 
-        using var fileStream = File.Create(Path.Join(imagesFolder.FullName, "name"));
+        using var fileStream = File.Create(Path.Join(imagesFolder.FullName, name));
         inputStream.Seek(0, SeekOrigin.Begin);
         inputStream.CopyTo(fileStream);
         return name;
+    }
+
+    // TODO maybe this should be in a separate class/interface?
+    public static void LogToFile(string message)
+    {
+        string logFilePath = Path.Join(BotFolderRoot.FullName, "banlog.txt");
+        var now = DateTime.UtcNow;
+        string timestamp = $"[{now:yyyy-MM-dd HH:mm:ss}] ";
+        File.AppendAllText(logFilePath, timestamp + message + Environment.NewLine);
     }
 }

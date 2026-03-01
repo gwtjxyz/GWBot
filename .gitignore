@@ -5,6 +5,10 @@
 
 # appsettings so we don't leak our discord bot token
 appsettings.json
+appsettings.*.json
+
+# bot-produced files
+banlog.txt
 
 # User-specific files
 *.rsuser
