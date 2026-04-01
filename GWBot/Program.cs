@@ -1,6 +1,4 @@
-﻿// See https://aka.ms/new-console-template for more information
-
-using GWBot;
+﻿using GWBot;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -8,6 +6,7 @@ using NetCord.Gateway;
 using NetCord.Hosting.Gateway;
 using NetCord.Hosting.Services;
 using NetCord.Hosting.Services.Commands;
+using NetCord.Services.Commands;
 
 Console.WriteLine("Starting GWBot...");
 
@@ -20,7 +19,10 @@ builder.Services
     })
     .AddSingleton<IDiscordService, DiscordService>()
     .AddGatewayHandlers(typeof(Program).Assembly)
-    .AddCommands();
+    .AddCommands(options =>
+    {
+        options.ResultHandler = new CustomCommandResultHandler<CommandContext>();
+    });
 
 string projectDirectory = FileSystem.BotFolderRoot.ToString();
 

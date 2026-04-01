@@ -66,7 +66,8 @@ public class DiscordService(ILogger<DiscordService> logger, RestClient discordCl
                 // ban and unban right after to clear messages
                 // doing this in a catch block looks kinda stupid but eh whatever
                 var deleteMessageSeconds = 60 * 60 * 24; // 1 day
-                await discordClient.BanGuildUserAsync(message.Guild.Id, message.Author.Id, deleteMessageSeconds: deleteMessageSeconds);
+                var properties = new RestRequestProperties().WithAuditLogReason($"Softban by GWBot: malicious images detected");
+                await discordClient.BanGuildUserAsync(message.Guild.Id, message.Author.Id, deleteMessageSeconds: deleteMessageSeconds, properties: properties);
                 FileSystem.LogToFile($"Banned user {message.Author.Id} ({message.Author.GlobalName})");
                 await discordClient.UnbanGuildUserAsync(message.Guild.Id, message.Author.Id);
                 
