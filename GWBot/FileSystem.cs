@@ -28,11 +28,13 @@ public struct ImageList
 }
 
 // class because it needs to be mutable for easier serialization
-public class ServerChannelDictionaryEntry
+public class ServerDictionaryEntry
 {
-    public ServerChannelDictionaryEntry(ulong serverId, ulong channelId) => (ServerId, ChannelId) = (serverId, channelId);
+    public ServerDictionaryEntry(ulong serverId, ulong channelId, double similarityThreshold = 95.0f) =>
+        (ServerId, ChannelId, SimilarityThreshold) = (serverId, channelId, similarityThreshold);
     public ulong ServerId { get; set; }
     public ulong ChannelId { get; set; }
+    public double SimilarityThreshold { get; set; }
 }
 
 public class FileSystem
@@ -78,17 +80,6 @@ public class FileSystem
     public readonly static string ImageListPath = Path.Join(BotFolderRoot.FullName, ImageListName);
 
     public readonly static string ServerDictionaryPath = Path.Join(PersistentConfigFolder.FullName, ServerDictionaryName);
-
-    public static ulong SetMessageChannelForServer(ulong guildId, ulong channelId)
-    {
-        throw new NotImplementedException("TODO");
-    }
-
-    public static ulong GetMessageChannelForServer(ulong guildId)
-    {
-
-        throw new NotImplementedException("TODO");
-    }
 
     public static void PopulateImageList(bool reset = false)
     {

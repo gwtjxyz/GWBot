@@ -2,6 +2,7 @@
 using Microsoft.Extensions.Logging;
 using NetCord.Gateway;
 using NetCord.Hosting.Gateway;
+using NetCord.Rest;
 
 namespace GWBot;
 
@@ -9,6 +10,12 @@ public class MessageCreateHandler(ILogger<MessageCreateHandler> logger, IDiscord
 {
     public async ValueTask HandleAsync(Message message)
     {
+        // Check if user is privileged, if so, ignore message
+        if (discordService.IsAuthorPrivileged(message))
+        {
+            return;
+        }
+
         // Check for image attachments
         var imageAttachments = from attachment in message.Attachments
                                where attachment.ContentType is not null && attachment.ContentType.StartsWith("image/")
@@ -27,6 +34,11 @@ public class MessageCreateHandler(ILogger<MessageCreateHandler> logger, IDiscord
         ImageAttachmentData? mostSimilarAttachment = null;
         ImageListEntry? mostSimilarImage = null;
         double maxPHashSimilarity = 0.0, maxDHashSimilarity = 0.0;
+
+        var serverDictionary = FileSystem.SerializeFromFile<List<ServerDictionaryEntry>>(FileSystem.ServerDictionaryPath, FileAccess.Read);
+        var serverEntry = serverDictionary.Find(x => x.ServerId == message.Guild.Id);
+        var logChannelId = serverEntry?.ChannelId ?? message.ChannelId;
+        var threshold = serverEntry?.SimilarityThreshold ?? 95.0;
 
         // go thru each image in uploaded list, compare each with our image library
         // if a match is found, break and ban user, otherwise log most similar comparison result and do nothing
@@ -49,7 +61,7 @@ public class MessageCreateHandler(ILogger<MessageCreateHandler> logger, IDiscord
                     mostSimilarImage = image;
                 }
 
-                if (pHashSimilarity >= 97.0 || dHashSimilarity >= 97.0)
+                if (pHashSimilarity >= threshold || dHashSimilarity >= threshold)
                 {
                     imageFoundInList = true;
                     maxPHashSimilarity = pHashSimilarity;
@@ -66,7 +78,7 @@ public class MessageCreateHandler(ILogger<MessageCreateHandler> logger, IDiscord
         {
             logger.LogInformation("Found match between image attachment {} and stored image {} (pHash: {}, dHash: {})",
                 mostSimilarAttachment!.Value.Id, mostSimilarImage!.Value.Name, maxPHashSimilarity, maxDHashSimilarity);
-            await discordService.SoftbanUser(message);
+            await discordService.SoftbanUser(message, logChannelId);
         }
         else
         {

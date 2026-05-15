@@ -37,6 +37,8 @@ public class HelpCommand : CommandModule<CommandContext>
         "ping - Check the bot's latency.\n" +
         "refresh - Recalculate the internal image list.\n" +
         "addimage, add - Add a new image to the banned image list.\n" +
+        "testimage - Test an image against the existing image list and print the most similar stored image.\n" +
+        "setthreshold, threshold - Test the similarity threshold images have to meet for the bot to act on them (default value is 95).\n" +
         "loghere - Set the current channel as the log channel for the bot's actions.\n" +
         "loganywhere = Unset the log channel.";
     }
@@ -82,13 +84,16 @@ public class AddImageCommand(ILogger<AddImageCommand> logger, IDiscordService di
         // TODO allow links?
         var imageList = FileSystem.SerializeFromFile<ImageList>(FileSystem.ImageListPath, FileAccess.Read);
         var imageAttachmentDataList = await discordService.GetImageAttachmentData(attachedImages);
+        var serverDictionary = FileSystem.SerializeFromFile<List<ServerDictionaryEntry>>(FileSystem.ServerDictionaryPath, FileAccess.Read);
+        var entry = serverDictionary.Find(x => x.ServerId == Context.Message.GuildId);
+        var threshold = entry is not null ? entry.SimilarityThreshold : 95.0;
 
         int addedImageCount = 0;
 
         foreach (var attachment in imageAttachmentDataList)
         {
             var matchedImages = from image in imageList.Images
-                                where IsHashSimilar(image.PHash, attachment.PHash) && IsHashSimilar(image.DHash, attachment.DHash)
+                                where IsHashSimilar(image.PHash, attachment.PHash, threshold) && IsHashSimilar(image.DHash, attachment.DHash, threshold)
                                 select image;
 
             if (matchedImages.Any())
@@ -113,9 +118,98 @@ public class AddImageCommand(ILogger<AddImageCommand> logger, IDiscordService di
         return $"Added {addedImageCount} images (duplicates skipped)";
     }
 
-    private static bool IsHashSimilar(ulong hash1, ulong hash2)
+    private static bool IsHashSimilar(ulong hash1, ulong hash2, double threshold)
     {
-        return CompareHash.Similarity(hash1, hash2) >= 99.5;
+        return CompareHash.Similarity(hash1, hash2) >= threshold;
+    }
+}
+
+public class TestImageCommand(ILogger<SetLogChannelCommand> logger, IDiscordService discordService) : CommandModule<CommandContext>
+{
+    [Command("testimage")]
+    public async Task<string> TestImage()
+    {
+        string permissionError = CommandHelpers.CheckForModeratorPermissions(Context);
+        if (!String.IsNullOrEmpty(permissionError))
+        {
+            return permissionError;
+        }
+
+
+        var attachedImages = from attachment in Context.Message.Attachments
+                             where attachment.ContentType is not null && attachment.ContentType.StartsWith("image/")
+                             select attachment;
+
+        if (!attachedImages.Any())
+        {
+            return "Invalid input: No attached images to test.";
+        }
+
+        var imageList = FileSystem.SerializeFromFile<ImageList>(FileSystem.ImageListPath, FileAccess.Read);
+        var imageAttachmentDataList = await discordService.GetImageAttachmentData(attachedImages);
+
+        var outputString = "Most similar images:\n";
+
+        var loopIndex = 0;
+        foreach (var attachment in imageAttachmentDataList)
+        {
+            var mostSimilarImage = imageList.Images.First();
+
+            foreach (var storedImage in imageList.Images)
+            {
+                // Will only use pHash for this
+                if (CompareHash.Similarity(attachment.PHash, storedImage.PHash) > CompareHash.Similarity(attachment.PHash, mostSimilarImage.PHash))
+                {
+                    mostSimilarImage = storedImage;
+                }
+            }
+
+            outputString += $"Attachment {loopIndex}:\n\t" +
+                $"pHash: **{attachment.PHash}**\n\t" +
+                $"most similar to **{mostSimilarImage.Name}** with pHash **{mostSimilarImage.PHash}**\n\t" +
+                $"similarity percentage: **{CompareHash.Similarity(attachment.PHash, mostSimilarImage.PHash)}**%\n";
+
+            loopIndex++;
+        }
+
+        return outputString;
+    }
+}
+
+public class SetThresholdCommand(ILogger<SetThresholdCommand> logger) : CommandModule<CommandContext>
+{
+    [Command("setthreshold", "threshold")]
+    public string SetThreshold(string thresholdString)
+    {
+        var permissionError = CommandHelpers.CheckForModeratorPermissions(Context);
+        if (!String.IsNullOrEmpty(permissionError))
+        {
+            return permissionError;
+        }
+
+        if (!double.TryParse(thresholdString, out double newThreshold))
+        {
+            return "Invalid input: threshold must be a floating point number.";
+        }
+
+        if (newThreshold < 0.0 || newThreshold > 100.0)
+        {
+            return "Invalid input: threshold must be in range between 0 and 100.";
+        }
+
+        var serverDictionary = FileSystem.SerializeFromFile<List<ServerDictionaryEntry>>(FileSystem.ServerDictionaryPath, FileAccess.Read);
+        var entryIndex = serverDictionary.FindIndex(x => x.ServerId == Context.Guild!.Id);
+        if (entryIndex < 0)
+        {
+            serverDictionary.Add(new ServerDictionaryEntry(Context.Message.Guild!.Id, Context.Message.ChannelId, newThreshold));
+        }
+        else
+        {
+            serverDictionary[entryIndex].SimilarityThreshold = newThreshold;
+        }
+        FileSystem.SerializeToFile(FileSystem.ServerDictionaryPath, serverDictionary);
+
+        return $"Set similarity threshold to {newThreshold}.";
     }
 }
 
@@ -135,12 +229,12 @@ public class SetLogChannelCommand(ILogger<SetLogChannelCommand> logger) : Comman
         var channelId = Context.Message.Channel!.Id;
         var path = FileSystem.ServerDictionaryPath;
 
-        var serverChannelDictionary = FileSystem.SerializeFromFile<List<ServerChannelDictionaryEntry>>(path, FileAccess.ReadWrite);
+        var serverChannelDictionary = FileSystem.SerializeFromFile<List<ServerDictionaryEntry>>(path, FileAccess.ReadWrite);
         var index = serverChannelDictionary.FindIndex(x => x.ServerId == serverId);
 
         if (index < 0)
         {
-            serverChannelDictionary.Add(new ServerChannelDictionaryEntry(serverId, channelId));
+            serverChannelDictionary.Add(new ServerDictionaryEntry(serverId, channelId));
         }
         else
         {
@@ -165,7 +259,7 @@ public class SetLogChannelCommand(ILogger<SetLogChannelCommand> logger) : Comman
         var serverId = Context.Message.Guild!.Id;
         var path = FileSystem.ServerDictionaryPath;
 
-        var serverChannelDictionary = FileSystem.SerializeFromFile<List<ServerChannelDictionaryEntry>>(path, FileAccess.ReadWrite);
+        var serverChannelDictionary = FileSystem.SerializeFromFile<List<ServerDictionaryEntry>>(path, FileAccess.ReadWrite);
         var index = serverChannelDictionary.FindIndex(x => x.ServerId == serverId);
 
         if (index >= 0)
