@@ -10,8 +10,8 @@ public class MessageCreateHandler(ILogger<MessageCreateHandler> logger, IDiscord
 {
     public async ValueTask HandleAsync(Message message)
     {
-        // Check if user is privileged, if so, ignore message
-        if (discordService.IsAuthorPrivileged(message))
+        // Check if user is privileged or a bot, if so, ignore message
+        if (discordService.IsAuthorPrivilegedOrBot(message))
         {
             return;
         }

@@ -2,6 +2,7 @@
 using NetCord;
 using NetCord.Gateway;
 using NetCord.Rest;
+using System.Reflection.Metadata.Ecma335;
 
 namespace GWBot;
 
@@ -15,7 +16,7 @@ public struct ImageAttachmentData
 
 public interface IDiscordService
 {
-    public bool IsAuthorPrivileged(Message message);
+    public bool IsAuthorPrivilegedOrBot(Message message);
 
     public ValueTask SoftbanUser(Message message, ulong logChannelId);
 
@@ -28,10 +29,18 @@ public interface IDiscordService
 
 public class DiscordService(ILogger<DiscordService> logger, RestClient discordClient) : IDiscordService
 {
-    public bool IsAuthorPrivileged(Message message)
+    public bool IsAuthorPrivilegedOrBot(Message message)
     {
-        var guildUser = message.Author as GuildUser ?? throw new UserNotInGuildException($"User {message.Author.Id} ({message.Author.GlobalName}) is not a guild user");
-        var guild = message.Guild ?? throw new MessageNotInGuildException($"Message {message.Id} is not in a guild");
+        var guildUser = message.Author as GuildUser;
+        if (guildUser == null)
+        {
+            return true;
+        }
+        var guild = message.Guild;
+        if (guild == null)
+        {
+            return true;
+        }
 
         return guildUser.GetPermissions(guild).HasFlag(Permissions.BanUsers);
     }
@@ -40,7 +49,7 @@ public class DiscordService(ILogger<DiscordService> logger, RestClient discordCl
     {
         logger.LogInformation("Attempting to ban user {} ({})", message.Author.Id, message.Author.GlobalName);
 
-        if (IsAuthorPrivileged(message))
+        if (IsAuthorPrivilegedOrBot(message))
         {
             FileSystem.LogToFile($"User {message.Author.Id} ({message.Author.GlobalName}) is privileged, skipping the ban.");
             return;
