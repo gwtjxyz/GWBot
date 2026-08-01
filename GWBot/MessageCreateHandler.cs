@@ -21,8 +21,8 @@ public class MessageCreateHandler(ILogger<MessageCreateHandler> logger, IDiscord
                                where attachment.ContentType is not null && attachment.ContentType.StartsWith("image/")
                                select attachment;
 
-        // Only process for spam if there are 3 or more images attached and if it was posted in a server
-        if (imageAttachments.Count() < 3 || message.Guild is null)
+        // Only process for spam if there are 2 or more images attached and if it was posted in a server
+        if (imageAttachments.Count() < 2 || message.Guild is null)
             return;
 
         var client = Client.HttpClient;

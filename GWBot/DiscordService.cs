@@ -2,7 +2,6 @@
 using NetCord;
 using NetCord.Gateway;
 using NetCord.Rest;
-using System.Reflection.Metadata.Ecma335;
 
 namespace GWBot;
 

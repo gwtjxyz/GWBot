@@ -15,7 +15,7 @@ var builder = Host.CreateApplicationBuilder(args);
 builder.Services
     .AddDiscordGateway(options =>
     {
-        options.Intents = GatewayIntents.GuildMessages | GatewayIntents.MessageContent | GatewayIntents.GuildUsers | GatewayIntents.Guilds;
+        options.Intents = GatewayIntents.GuildMessages | GatewayIntents.MessageContent | GatewayIntents.Guilds;
     })
     .AddSingleton<IDiscordService, DiscordService>()
     .AddGatewayHandlers(typeof(Program).Assembly)
